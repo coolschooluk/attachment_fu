@@ -1,3 +1,5 @@
+require 'mime/types'
+
 module Technoweenie # :nodoc:
   module AttachmentFu # :nodoc:
     @@default_processors = %w(ImageScience Rmagick MiniMagick Gd2 CoreImage)
@@ -206,6 +208,13 @@ module Technoweenie # :nodoc:
           tmp.close
         end
       end
+      
+      # Added June 2008 - gets file extension using mime_types gem
+      
+      def mime_type_from_extension(extension)
+          MIME::Types.type_for(extension).first.simplified
+      end
+      
     end
 
     module InstanceMethods
@@ -290,16 +299,9 @@ module Technoweenie # :nodoc:
       #
       # TODO: Allow it to work with Merb tempfiles too.
       def uploaded_data=(file_data)
-        if file_data.respond_to?(:content_type)
-          return nil if file_data.size == 0
-          self.content_type = file_data.content_type
-          self.filename     = file_data.original_filename if respond_to?(:filename)
-        else
-          return nil if file_data.blank? || file_data['size'] == 0
-          self.content_type = file_data['content_type']
-          self.filename =  file_data['filename']
-          file_data = file_data['tempfile']
-        end
+        return nil if file_data.nil? || file_data.size == 0
+        self.content_type = file_data.content_type
+        self.filename     = file_data.original_filename if respond_to?(:filename)
         if file_data.is_a?(StringIO)
           file_data.rewind
           self.temp_data = file_data.read
@@ -363,6 +365,16 @@ module Technoweenie # :nodoc:
       def with_image(&block)
         self.class.with_image(temp_path, &block)
       end
+      
+      # new method added June 2008  - for migrating old image paths to attachment_fu
+      
+      def set_from_file(source_file)
+        source_file_extension = File.extname(source_file.path).reverse.chomp('.').reverse
+        source_file_name = File.basename(source_file.path)
+        self.content_type = self.class.mime_type_from_extension(source_file_extension)
+        self.filename = source_file_name
+        self.temp_data = source_file.read
+      end
 
       protected
         # Generates a unique filename for a Tempfile.
@@ -371,14 +383,13 @@ module Technoweenie # :nodoc:
         end
 
         def sanitize_filename(filename)
-          return unless filename
           returning filename.strip do |name|
             # NOTE: File.basename doesn't work right with Windows paths on Unix
             # get only the filename, not the whole path
             name.gsub! /^.*(\\|\/)/, ''
 
             # Finally, replace all non alphanumeric, underscore or periods with underscore
-            name.gsub! /[^A-Za-z0-9\.\-]/, '_'
+            name.gsub! /[^\w\.\-]/, '_'
           end
         end
 
